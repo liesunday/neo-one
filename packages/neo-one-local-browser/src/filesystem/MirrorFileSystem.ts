@@ -29,6 +29,27 @@ export class MirrorFileSystem extends SubscribableSyncFileSystem implements File
     return new (this as any)(syncFS, asyncFS);
   }
 
+  public static initializeWithSync(sourceFS: FileSystem, targetFS: FileSystem): void {
+    function readWorker(pathIn: string) {
+      if (pathIn !== '/') {
+        targetFS.mkdirSync(pathIn);
+      }
+      const paths = sourceFS.readdirSync(pathIn);
+      paths.forEach((file) => {
+        const path = (pathIn === '/' ? '' : pathIn) + sep + file;
+        const stat = sourceFS.statSync(path);
+        if (stat.isFile()) {
+          const content = sourceFS.readFileSync(path);
+          targetFS.writeFileSync(path, content);
+        } else if (stat.isDirectory()) {
+          readWorker(path);
+        }
+      });
+    }
+
+    readWorker('/');
+  }
+
   private readonly promises = new Set<Promise<void>>();
 
   protected constructor(protected readonly syncFS: FileSystem, private readonly asyncFS: AsyncFileSystem) {

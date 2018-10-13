@@ -1,8 +1,9 @@
-import { dirname, FileSystem, normalizePath, OutputMessage, traverseDirectory } from '@neo-one/local-browser';
+import { dirname, FileSystem, normalizePath, traverseDirectory } from '@neo-one/local-browser';
 import { WorkerManager } from '@neo-one/worker';
 import * as bignumber from 'bignumber.js';
 import * as nodePath from 'path';
-import { Subject } from 'rxjs';
+import * as React from 'react';
+import * as ReactDOM from 'react-dom';
 import { EditorFile } from '../editor';
 import { ModuleNotFoundError } from '../errors';
 import { getFileType } from '../utils';
@@ -13,14 +14,13 @@ import { StaticExportsModule } from './StaticExportsModule';
 import { TranspiledModule, Transpiler } from './transpile';
 import { Exports } from './types';
 
-interface PathWithExports {
+export interface PathWithExports {
   readonly path: string;
   readonly exports: Exports;
 }
 
 interface EngineBaseOptions {
   readonly id: string;
-  readonly output$: Subject<OutputMessage>;
   readonly fs: FileSystem;
   readonly pathWithExports: ReadonlyArray<PathWithExports>;
   readonly transpiler: WorkerManager<typeof Transpiler>;
@@ -31,20 +31,18 @@ interface Modules {
   [path: string]: ModuleBase;
 }
 
-const BUILTIN_MODULES = new Set(['path', 'bignumber.js']);
+const BUILTIN_MODULES = new Set(['path', 'bignumber.js', 'react', 'react-dom']);
 
 export class EngineBase {
   public readonly id: string;
-  public readonly output$: Subject<OutputMessage>;
   public readonly fs: FileSystem;
   public readonly transpiler: WorkerManager<typeof Transpiler>;
   private readonly mutableModules: Modules;
   // tslint:disable-next-line readonly-keyword
   private readonly mutableCachedPaths: { [currentPath: string]: { [path: string]: string } } = {};
 
-  public constructor({ id, output$, fs, transpiler, pathWithExports }: EngineBaseOptions) {
+  public constructor({ id, fs, transpiler, pathWithExports }: EngineBaseOptions) {
     this.id = id;
-    this.output$ = output$;
     this.fs = fs;
     this.transpiler = transpiler;
     this.mutableModules = pathWithExports.reduce<Modules>(
@@ -54,6 +52,8 @@ export class EngineBase {
       }),
       {
         path: new StaticExportsModule(this, 'path', nodePath),
+        react: new StaticExportsModule(this, 'react', React),
+        'react-dom': new StaticExportsModule(this, 'react-dom', ReactDOM),
         'bignumber.js': new StaticExportsModule(this, 'bignumber.js', bignumber),
       },
     );
@@ -106,7 +106,7 @@ export class EngineBase {
 
   private readonly onWriteFile = (pathIn: string): void => {
     const path = normalizePath(pathIn);
-    if (getFileType(path) === 'typescript' && !path.startsWith(TRANSPILE_PATH)) {
+    if (getFileType(path) === 'typescript' && !path.startsWith(TRANSPILE_PATH) && !path.startsWith('/node_modules')) {
       this.transpileModule(path);
     }
   };

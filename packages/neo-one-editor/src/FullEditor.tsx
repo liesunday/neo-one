@@ -17,6 +17,7 @@ import {
 import { EditorContext } from './EditorContext';
 import { Engine } from './engine';
 import { Loading } from './Loading';
+import { Preview } from './preview';
 import { EngineContentFiles, Test, TestRunnerCallbacks, TestSuite } from './types';
 
 interface TestsPassContainerProps {
@@ -45,6 +46,7 @@ const TestsPassContainer = connect(selectConsoleTestSuites)(
 
 interface ExternalProps {
   readonly id: string;
+  readonly createPreviewURL: (id: string) => string;
   readonly initialFiles: EngineContentFiles;
   readonly onTestsPass?: () => void;
 }
@@ -87,6 +89,7 @@ class FullEditorBase extends React.Component<Props, State> {
       onTestsPass,
       children: _children,
       clearStore: _clearStore,
+      createPreviewURL: _createPreviewURL,
       ...props
     } = this.props;
 
@@ -97,16 +100,24 @@ class FullEditorBase extends React.Component<Props, State> {
         <>
           <TestsPassContainer onTestsPass={onTestsPass} />
           <Editor openFiles={openFiles} files={files} {...props} />
+          <Preview />
         </>
       </EditorContext.Provider>
     );
   }
 
-  private initializeEngine({ id, initialFiles, testRunnerCallbacks, appendOutput, clearStore }: Props): void {
+  private initializeEngine({
+    id,
+    createPreviewURL,
+    initialFiles,
+    testRunnerCallbacks,
+    appendOutput,
+    clearStore,
+  }: Props): void {
     this.dispose();
     this.setState({ engine: undefined, openFiles: [], files: [] });
     clearStore();
-    Engine.create({ id, initialFiles, testRunnerCallbacks })
+    Engine.create({ id, createPreviewURL, initialFiles, testRunnerCallbacks })
       .then(async (engine) => {
         if (this.props.id === id) {
           this.setState({ engine, openFiles: engine.openFiles$.getValue() });

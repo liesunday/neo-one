@@ -11,34 +11,32 @@ import {
   OutputMessage,
   pathExists,
   traverseDirectory,
+  WorkerMirrorFileSystem,
 } from '@neo-one/local-browser';
-import { WorkerManager } from '@neo-one/worker';
+import { comlink, WorkerManager } from '@neo-one/worker';
 import _ from 'lodash';
 import * as nodePath from 'path';
 import { BehaviorSubject, Subject } from 'rxjs';
 import { EditorFiles } from '../editor';
 import { EngineContentFiles, EngineState, TestRunnerCallbacks } from '../types';
-import { EngineBase } from './EngineBase';
+import { EngineBase, PathWithExports } from './EngineBase';
 import { ENGINE_STATE_FILE, initializeFileSystem, INTERNAL_DIR } from './initializeFileSystem';
 import { ModuleBase } from './ModuleBase';
 import { packages } from './packages';
 import { TestRunner } from './test';
 import { transpiler } from './transpile';
-import { Exports } from './types';
+import { RegisterPreviewEngineResult } from './types';
 
 export interface EngineCreateOptions {
   readonly id: string;
+  readonly createPreviewURL: (id: string) => string;
   readonly initialFiles: EngineContentFiles;
   readonly testRunnerCallbacks: TestRunnerCallbacks;
 }
 
-interface PathWithExports {
-  readonly path: string;
-  readonly exports: Exports;
-}
-
 interface EngineOptions {
   readonly id: string;
+  readonly createPreviewURL: (id: string) => string;
   readonly output$: Subject<OutputMessage>;
   readonly builderManager: WorkerManager<typeof Builder>;
   readonly fs: FileSystem;
@@ -46,8 +44,20 @@ interface EngineOptions {
   readonly testRunnerCallbacks: TestRunnerCallbacks;
 }
 
+// tslint:disable-next-line readonly-keyword
+const mutableEngines: { [id: string]: Engine } = {};
+
 export class Engine extends EngineBase {
-  public static async create({ id, initialFiles, testRunnerCallbacks }: EngineCreateOptions): Promise<Engine> {
+  public static async create({
+    id,
+    createPreviewURL,
+    initialFiles,
+    testRunnerCallbacks,
+  }: EngineCreateOptions): Promise<Engine> {
+    if ((mutableEngines[id] as Engine | undefined) !== undefined) {
+      return mutableEngines[id];
+    }
+
     const output$ = new Subject<OutputMessage>();
     const builderManager = createBuilderManager(output$, id, jsonRPCLocalProviderManager);
     const [fs, builderInstance, jsonRPCLocalProvider] = await Promise.all([
@@ -85,7 +95,16 @@ export class Engine extends EngineBase {
       [],
     );
 
-    const engine = new Engine({ id, output$, builderManager, fs, pathWithExports, testRunnerCallbacks });
+    const engine = new Engine({
+      id,
+      createPreviewURL,
+      output$,
+      builderManager,
+      fs,
+      pathWithExports,
+      testRunnerCallbacks,
+    });
+    mutableEngines[id] = engine;
 
     if (!exists) {
       initialFiles.forEach((file) => {
@@ -105,19 +124,66 @@ export class Engine extends EngineBase {
     return engine;
   }
 
+  public static async registerPreviewEngine({
+    id,
+    fs,
+    initialized,
+  }: {
+    readonly id: string;
+    readonly fs: WorkerMirrorFileSystem;
+    readonly initialized: boolean;
+  }): Promise<RegisterPreviewEngineResult> {
+    console.log(`registerPreviewEngine: ${id}`);
+    if ((mutableEngines[id] as Engine | undefined) === undefined) {
+      throw new Error(`Could not find engine for id: ${id}`);
+    }
+
+    const engine = mutableEngines[id];
+    engine.fs.subscribe((change) => {
+      console.log('handleChange');
+      fs.handleChange(change).catch((error) => {
+        // tslint:disable-next-line no-console
+        console.error(error);
+      });
+    });
+
+    if (!initialized) {
+      WorkerMirrorFileSystem.initializeWithSync(engine.fs, fs);
+    }
+
+    console.log('return');
+    return {
+      builderManager: comlink.proxyValue(engine.builderManager),
+      jsonRPCLocalProviderManager: comlink.proxyValue(jsonRPCLocalProviderManager),
+      transpiler: comlink.proxyValue(transpiler),
+    };
+  }
+
+  public readonly output$: Subject<OutputMessage>;
   public readonly openFiles$: BehaviorSubject<EditorFiles>;
   public readonly files$: BehaviorSubject<EditorFiles>;
+  public readonly createPreviewURL: () => string;
   private readonly testRunner: TestRunner;
   private readonly builderManager: WorkerManager<typeof Builder>;
 
-  private constructor({ id, output$, fs, builderManager, pathWithExports, testRunnerCallbacks }: EngineOptions) {
-    super({ id, output$, fs, transpiler, pathWithExports });
+  private constructor({
+    id,
+    createPreviewURL,
+    output$,
+    fs,
+    builderManager,
+    pathWithExports,
+    testRunnerCallbacks,
+  }: EngineOptions) {
+    super({ id, fs, transpiler, pathWithExports });
+    this.output$ = output$;
     this.openFiles$ = new BehaviorSubject<EditorFiles>([]);
     this.files$ = new BehaviorSubject<EditorFiles>(
       [...traverseDirectory(fs, '/')]
         .filter((path) => !path.startsWith(INTERNAL_DIR))
         .map((path) => this.getFile(path)),
     );
+    this.createPreviewURL = () => createPreviewURL(id);
     this.testRunner = new TestRunner(this, testRunnerCallbacks);
     this.builderManager = builderManager;
 

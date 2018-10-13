@@ -10,6 +10,7 @@ type Transferable = MessagePort | ArrayBuffer; // eslint-disable-line no-unused-
 export type Exposable = Function | Object; // eslint-disable-line no-unused-vars
 
 interface InvocationResult {
+  type: 'RETURN';
   id?: string;
   value: WrappedValue;
 }
@@ -220,8 +221,7 @@ export function expose(rootObj: Exposable, endpoint: Endpoint | Window): void {
       }
     }
 
-    iresult = makeInvocationResult(iresult);
-    iresult.id = irequest.id;
+    iresult = makeInvocationResult(irequest, iresult);
     return (endpoint as Endpoint).postMessage(iresult, transferableProperties([iresult]));
   });
 }
@@ -346,7 +346,7 @@ function pingPongMessage(endpoint: Endpoint, msg: Object, transferables: Transfe
 
   return new Promise((resolve) => {
     attachMessageHandler(endpoint, function handler(event: MessageEvent) {
-      if (event.data.id !== id) return;
+      if (event.data.id !== id || event.data.type !== 'RETURN') return;
       detachMessageHandler(endpoint, handler);
       resolve(event);
     });
@@ -429,20 +429,10 @@ function transferableProperties(obj: {}[] | undefined): Transferable[] {
   return r;
 }
 
-function makeInvocationResult(obj: {}): InvocationResult {
-  for (const [type, transferHandler] of transferHandlers) {
-    if (transferHandler.canHandle(obj)) {
-      const value = transferHandler.serialize(obj);
-      return {
-        value: { type, value },
-      };
-    }
-  }
-
+function makeInvocationResult(irequest: InvocationRequest, obj: {}): InvocationResult {
   return {
-    value: {
-      type: 'RAW',
-      value: obj,
-    },
+    type: 'RETURN',
+    id: irequest.id,
+    value: wrapValue(obj),
   };
 }

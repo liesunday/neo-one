@@ -61,5 +61,17 @@
     "typescript-fsa-reducers": "^1.0.0",
     "webpack": "4.20.2"
   },
-  "sideEffects": false
+  "devDependencies": {
+    "connect-history-api-fallback": "1.5.0",
+    "css-loader": "1.0.0",
+    "hard-source-webpack-plugin": "0.12.0",
+    "koa-connect": "2.0.1",
+    "mini-html-webpack-plugin": "0.2.3",
+    "style-loader": "0.23.1",
+    "webpackbar": "2.6.3",
+    "webpack-serve": "2.0.2"
+  },
+  "sideEffects": [
+    "src/engine/Engine.ts"
+  ]
 }
